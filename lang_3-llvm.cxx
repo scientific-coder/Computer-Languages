@@ -450,21 +450,4 @@ template Value* llvm::IRBuilder<true, llvm::ConstantFolder, llvm::IRBuilderDefau
 template Value* llvm::IRBuilder<true, llvm::ConstantFolder, llvm::IRBuilderDefaultInserter<true> >::CreateFCmpOGT(llvm::Value*, llvm::Value*, llvm::Twine const&);
 template Value* llvm::IRBuilder<true, llvm::ConstantFolder, llvm::IRBuilderDefaultInserter<true> >::CreateFCmpOLE(llvm::Value*, llvm::Value*, llvm::Twine const&);
 template Value* llvm::IRBuilder<true, llvm::ConstantFolder, llvm::IRBuilderDefaultInserter<true> >::CreateFCmpOGE(llvm::Value*, llvm::Value*, llvm::Twine const&);
-#if 0
-template Value* 
-template Value*
-template Value*
-template Value*
-template Value*
-template Value*
-template Value*
-template Value*
-template Value*
-template Value*
-template Value*
-template Value*
-template Value*
-template Value*
-template Value*
 
-#endif
