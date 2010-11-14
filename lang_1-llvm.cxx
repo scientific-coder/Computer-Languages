@@ -8,7 +8,7 @@
 #include <boost/spirit/include/phoenix_operator.hpp>
 #include <boost/spirit/include/phoenix_function.hpp>
 
-#include "llvm/LLVMContext.h"
+#include <llvm/LLVMContext.h>
 #include <llvm/Module.h>
 #include <llvm/Function.h>
 #include <llvm/PassManager.h>
@@ -16,12 +16,19 @@
 #include <llvm/Assembly/PrintModulePass.h>
 #include <llvm/Support/IRBuilder.h>
 #include <llvm/Support/raw_ostream.h>
+#include <llvm/DerivedTypes.h>
+#include <llvm/ExecutionEngine/ExecutionEngine.h>
+#include <llvm/Target/TargetData.h>
+#include <llvm/Target/TargetSelect.h>
+#include <llvm/Transforms/Scalar.h>
+#include <llvm/ExecutionEngine/JIT.h>
+
 //#include "IRBuilderNoFold.h" // removed folding from the IRBuilder because there are only constants in lang_1 !
 
 using namespace llvm;
 
 
-// g++ -o lang_1-llvm lang_1-llvm.cxx `llvm-config-2.8 --cppflags --ldflags --libs core` -lstdc++
+// g++ -o lang_1-llvm lang_1-llvm.cxx `llvm-config-2.8 --cppflags --ldflags --libs ` -lstdc++ -rdynamic
 
 using namespace boost::spirit;
 using namespace boost::spirit::qi;
@@ -172,6 +179,17 @@ int main(int argc, char* argv[]){
     std::cout<<"parsing succeded !\n";
     verifyModule(*module_ptr, PrintMessageAction);
     module_ptr->dump();
+    llvm::InitializeNativeTarget();
+    std::string ErrStr;
+    llvm::ExecutionEngine* exec_engine_ptr= llvm::EngineBuilder(module_ptr).setErrorStr(&ErrStr).create();
+  if (!exec_engine_ptr) {
+    std::cerr<<"Could not create ExecutionEngine:"<< ErrStr.c_str()<<std::endl;
+  }else {
+    typedef value_t (*fun_ptr_t)(void);
+    fun_ptr_t fun_ptr = 
+      reinterpret_cast<fun_ptr_t>(exec_engine_ptr->getPointerToFunction(module_ptr->getFunction("main")));
+    std::cout<<"result: "<<(*fun_ptr)()<<std::endl;
+  }
   } else {
     std::string rest(iter, end);
     std::cerr << "parsing failed\n" << "stopped at: \"" << rest << "\"\n";
