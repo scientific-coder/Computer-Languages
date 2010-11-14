@@ -14,6 +14,12 @@
 #include <llvm/Assembly/PrintModulePass.h>
 #include <llvm/Support/IRBuilder.h>
 #include <llvm/Support/raw_ostream.h>
+#include <llvm/DerivedTypes.h>
+#include <llvm/ExecutionEngine/ExecutionEngine.h>
+#include <llvm/Target/TargetData.h>
+#include <llvm/Target/TargetSelect.h>
+#include <llvm/Transforms/Scalar.h>
+#include <llvm/ExecutionEngine/JIT.h>
 
 //#include "IRBuilderNoFold.h" // 
 
@@ -31,7 +37,7 @@ Much of the code is there only to enable support for all numeric types (short, i
 TODO: handle llvm numeric op dispatch to fp type (change since 2.6)
  */
 
-// time g++ -o lang_2-llvm lang_2-llvm.cxx `llvm-config-2.8 --cppflags --ldflags --libs core` -lstdc++ -O4
+// time g++ -o lang_2-llvm lang_2-llvm.cxx `llvm-config-2.8 --cppflags --ldflags --libs ` -lstdc++ -rdynamic -O4
 
 using namespace boost::spirit;
 using namespace boost::spirit::qi;
@@ -217,6 +223,26 @@ struct language_2_grammar : grammar<Iterator, space_type> {
   rule<Iterator, space_type> program, return_statement;
   rule<Iterator, void(AllocaInst*), locals<Value*>, space_type> assignment_rhs;
 };
+template<typename V>
+bool exec_function(llvm::Module& module, std::string const& function_name="main")
+{
+  static bool init_done(false);
+  if(!init_done){
+    llvm::InitializeNativeTarget();
+    init_done= true;
+  }
+  std::string ErrStr;
+  llvm::ExecutionEngine* exec_engine_ptr= llvm::EngineBuilder(&module).setErrorStr(&ErrStr).create();
+  if (!exec_engine_ptr) {
+    std::cerr<<"Could not create ExecutionEngine:"<< ErrStr.c_str()<<std::endl;
+    return false;
+  }
+  typedef V (*fun_ptr_t)(void);
+  fun_ptr_t fun_ptr = 
+    reinterpret_cast<fun_ptr_t>(exec_engine_ptr->getPointerToFunction(module.getFunction(function_name)));
+  std::cout<<"result: "<<(*fun_ptr)()<<std::endl;
+  return true;
+}
 
 int main(int argc, char* argv[]){
   typedef int value_t; // type used in arithmetic computations
@@ -237,6 +263,7 @@ int main(int argc, char* argv[]){
     std::cout<<"parsing succeded !\n";
     verifyModule(module, PrintMessageAction);
     module.dump();
+    exec_function<value_t>(module, "main");
   } else {
     std::string rest(iter, end);
     std::cerr << "parsing failed\n" << "stopped at: \"" << rest << "\"\n";
