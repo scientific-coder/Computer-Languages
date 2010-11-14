@@ -31,7 +31,7 @@ Much of the code is there only to enable support for all numeric types (short, i
 TODO: handle llvm numeric op dispatch to fp type (change since 2.6)
  */
 
-// time g++ -std=c++0x -o lang_2-llvm lang_2-llvm.cxx `llvm-config-2.8 --cppflags --ldflags --libs core` -lstdc++ -O4
+// time g++ -o lang_2-llvm lang_2-llvm.cxx `llvm-config-2.8 --cppflags --ldflags --libs core` -lstdc++ -O4
 
 using namespace boost::spirit;
 using namespace boost::spirit::qi;
@@ -236,12 +236,7 @@ int main(int argc, char* argv[]){
   if (r && iter == end) {
     std::cout<<"parsing succeded !\n";
     verifyModule(module, PrintMessageAction);
-    PassManager PM;
-    std::string out_data;
-    llvm::raw_string_ostream output(out_data);
-    PM.add(createPrintModulePass(&output));
-    PM.run(module);
-    std::cout<<output.str()<<std::endl;
+    module.dump();
   } else {
     std::string rest(iter, end);
     std::cerr << "parsing failed\n" << "stopped at: \"" << rest << "\"\n";

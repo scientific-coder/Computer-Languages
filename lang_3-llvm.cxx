@@ -128,11 +128,7 @@ struct language_3_grammar : grammar<Iterator, boost::spirit::standard::space_typ
   template<Value* (IRBuilder<>::*)(Value*, Value*, const Twine&)> struct binary_op{};
   template<Value* (IRBuilder<>::*)(Value*, const Twine&)> struct unary_op{};
 
-  typedef binary_op<&IRBuilder<>::CreateAdd> add_t;//
-  typedef binary_op<&IRBuilder<>::CreateSub> sub_t;
-  typedef binary_op<&IRBuilder<>::CreateMul> mul_t;//
-  typedef binary_op<&IRBuilder<>::CreateSDiv> div_t;
-  typedef unary_op<&IRBuilder<>::CreateNeg> neg_t; //
+  
 
 
   typedef binary_op<&IRBuilder<>::CreateOr> logical_or_t; //
@@ -140,22 +136,41 @@ struct language_3_grammar : grammar<Iterator, boost::spirit::standard::space_typ
   typedef unary_op<&IRBuilder<>::CreateNot> logical_not_t;
   // different methods for integral types and fp types
   typedef typename boost::mpl::if_<boost::is_integral<value_t>
+                                   , binary_op<&IRBuilder<>::CreateAdd>
+                                   , binary_op<&IRBuilder<>::CreateFAdd> >::type  add_t;//
+  typedef typename boost::mpl::if_<boost::is_integral<value_t>
+                                   , binary_op<&IRBuilder<>::CreateSub>
+                                   , binary_op<&IRBuilder<>::CreateFSub> >::type  sub_t;//
+
+  typedef typename boost::mpl::if_<boost::is_integral<value_t>
+                                   , binary_op<&IRBuilder<>::CreateMul>
+                                   , binary_op<&IRBuilder<>::CreateFMul> >::type  mul_t;//
+
+  typedef typename boost::mpl::if_<boost::is_integral<value_t>
+                                   , binary_op<&IRBuilder<>::CreateSDiv>
+                                   , binary_op<&IRBuilder<>::CreateFDiv> >::type  div_t;//
+
+  typedef typename boost::mpl::if_<boost::is_integral<value_t>
+                                   , unary_op<&IRBuilder<>::CreateNeg>
+                                   , unary_op<&IRBuilder<>::CreateFNeg> >::type  neg_t;//
+
+  typedef typename boost::mpl::if_<boost::is_integral<value_t>
 	       , binary_op<&IRBuilder<>::CreateICmpSGT>
 	       , binary_op<&IRBuilder<>::CreateFCmpOGT> >::type greater_than_t;
   typedef typename boost::mpl::if_<boost::is_integral<value_t>
 				   , binary_op<&IRBuilder<>::CreateICmpSLT>//
-		     , binary_op<&IRBuilder<>::CreateFCmpOLT> >::type lesser_than_t;
-  typedef typename boost::mpl::if_<boost::is_integral<value_t>
-		       ,binary_op<&IRBuilder<>::CreateICmpSGE>
-		       ,binary_op<&IRBuilder<>::CreateFCmpOGE> >::type greater_or_eq_t;
+                                   , binary_op<&IRBuilder<>::CreateFCmpOLT> >::type lesser_than_t;
 typedef typename boost::mpl::if_<boost::is_integral<value_t>
-		     ,binary_op<&IRBuilder<>::CreateICmpSLE>
-		     ,binary_op<&IRBuilder<>::CreateFCmpOLE> >::type lesser_or_eq_t;
+                                 ,binary_op<&IRBuilder<>::CreateICmpSGE>
+                                 ,binary_op<&IRBuilder<>::CreateFCmpOGE> >::type greater_or_eq_t;
 typedef typename boost::mpl::if_<boost::is_integral<value_t>
-		     ,binary_op<&IRBuilder<>::CreateICmpEQ>
-		     ,binary_op<&IRBuilder<>::CreateFCmpOEQ> >::type equality_t;
+                                 ,binary_op<&IRBuilder<>::CreateICmpSLE>
+                                 ,binary_op<&IRBuilder<>::CreateFCmpOLE> >::type lesser_or_eq_t;
 typedef typename boost::mpl::if_<boost::is_integral<value_t>
-		     ,binary_op<&IRBuilder<>::CreateICmpNE>
+                                 ,binary_op<&IRBuilder<>::CreateICmpEQ>
+                                 ,binary_op<&IRBuilder<>::CreateFCmpOEQ> >::type equality_t;
+typedef typename boost::mpl::if_<boost::is_integral<value_t>
+                                 ,binary_op<&IRBuilder<>::CreateICmpNE>
 		     ,binary_op<&IRBuilder<>::CreateFCmpONE> >::type inequality_t;
 
 
@@ -209,7 +224,19 @@ struct builder_helper{
 				 , boost::is_floating_point<value_t> >, Value*
 			    >::type cast_result(Value* v) const
   { return builder.CreateUIToFP(v, type<value_t>(), "bool_to_fp_tmp"); }
-    
+  // converse is needed for test expecting a boolean
+  // this is inefficient, conversion to fp should be on demand 
+  //so that we don't have to convert back to integral.
+  template<typename T> 
+  typename boost::enable_if< boost::is_integral<value_t>, T* 
+			    >::type to_boolean(T* v) const { return v; }
+
+  template<typename T> 
+  typename boost::enable_if<boost::is_floating_point<value_t> , T*
+			    >::type to_boolean(T* v) const
+  { return builder.CreateFPToUI(v, type<int>(), "fp_to_bool_tmp"); }
+
+
   // binary operations
   template< Value*(IRBuilder<>::* const mem_fun)(Value*, Value*, const Twine&)>
   Value* operator()(binary_op<mem_fun> /* unused */, Value* a1, Value* a2, const char * name) const
@@ -245,7 +272,7 @@ struct builder_helper{
     BasicBlock * else_BB = BasicBlock::Create(getGlobalContext()," else");
     BasicBlock * end_if_BB = BasicBlock::Create(getGlobalContext()," end_if");
     // create test & branch instruction      
-    builder.CreateCondBr(builder.CreateIsNull(expression, "if"), else_BB, then_BB); 
+    builder.CreateCondBr(builder.CreateIsNull(to_boolean(expression), "if"), else_BB, then_BB); 
     builder.SetInsertPoint(then_BB); // set then block and start using it
     // return data to be used for else block and end_if
     return if_then_else_t(parent_function, then_BB, else_BB, end_if_BB);
@@ -418,12 +445,7 @@ int main(int argc, char* argv[]){
   if (r && iter == end) {
     std::cout<<"parsing succeded !\n";
     verifyModule(module, PrintMessageAction);
-    PassManager PM;
-    std::string out_data;
-    llvm::raw_string_ostream output(out_data);
-    PM.add(createPrintModulePass(&output));
-    PM.run(module);
-    std::cout<<output.str();
+    module.dump();
   } else {
     std::string rest(iter, end);
     std::cerr << "parsing failed\n" << "stopped at: \"" << rest << "\"\n";
@@ -432,15 +454,20 @@ int main(int argc, char* argv[]){
 }
 
 template Value* llvm::IRBuilder<true, llvm::ConstantFolder, llvm::IRBuilderDefaultInserter<true> >::CreateNeg(llvm::Value*, llvm::Twine const&);
+template Value* llvm::IRBuilder<true, llvm::ConstantFolder, llvm::IRBuilderDefaultInserter<true> >::CreateFNeg(llvm::Value*, llvm::Twine const&);
 template Value* llvm::IRBuilder<true, llvm::ConstantFolder, llvm::IRBuilderDefaultInserter<true> >::CreateOr(llvm::Value*, llvm::Value*, llvm::Twine const&);
 template Value* llvm::IRBuilder<true, llvm::ConstantFolder, llvm::IRBuilderDefaultInserter<true> >::CreateAnd(llvm::Value*, llvm::Value*, llvm::Twine const&);
 template Value* llvm::IRBuilder<true, llvm::ConstantFolder, llvm::IRBuilderDefaultInserter<true> >::CreateICmpSLT(llvm::Value*, llvm::Value*, llvm::Twine const&);
 template Value* llvm::IRBuilder<true, llvm::ConstantFolder, llvm::IRBuilderDefaultInserter<true> >::CreateAdd(llvm::Value*, llvm::Value*, llvm::Twine const&);
 template Value* llvm::IRBuilder<true, llvm::ConstantFolder, llvm::IRBuilderDefaultInserter<true> >::CreateMul(llvm::Value*, llvm::Value*, llvm::Twine const&);
+template Value* llvm::IRBuilder<true, llvm::ConstantFolder, llvm::IRBuilderDefaultInserter<true> >::CreateFAdd(llvm::Value*, llvm::Value*, llvm::Twine const&);
+template Value* llvm::IRBuilder<true, llvm::ConstantFolder, llvm::IRBuilderDefaultInserter<true> >::CreateFMul(llvm::Value*, llvm::Value*, llvm::Twine const&);
 template Value* llvm::IRBuilder<true, llvm::ConstantFolder, llvm::IRBuilderDefaultInserter<true> >::CreateICmpNE(llvm::Value*, llvm::Value*, llvm::Twine const&);
 template Value* llvm::IRBuilder<true, llvm::ConstantFolder, llvm::IRBuilderDefaultInserter<true> >::CreateICmpSGT(llvm::Value*, llvm::Value*, llvm::Twine const&);
 template Value* llvm::IRBuilder<true, llvm::ConstantFolder, llvm::IRBuilderDefaultInserter<true> >::CreateSub(llvm::Value*, llvm::Value*, llvm::Twine const&);
 template Value* llvm::IRBuilder<true, llvm::ConstantFolder, llvm::IRBuilderDefaultInserter<true> >::CreateSDiv(llvm::Value*, llvm::Value*, llvm::Twine const&);
+template Value* llvm::IRBuilder<true, llvm::ConstantFolder, llvm::IRBuilderDefaultInserter<true> >::CreateFSub(llvm::Value*, llvm::Value*, llvm::Twine const&);
+template Value* llvm::IRBuilder<true, llvm::ConstantFolder, llvm::IRBuilderDefaultInserter<true> >::CreateFDiv(llvm::Value*, llvm::Value*, llvm::Twine const&);
 template Value* llvm::IRBuilder<true, llvm::ConstantFolder, llvm::IRBuilderDefaultInserter<true> >::CreateICmpSLE(llvm::Value*, llvm::Value*, llvm::Twine const&);
 template Value* llvm::IRBuilder<true, llvm::ConstantFolder, llvm::IRBuilderDefaultInserter<true> >::CreateICmpSGE(llvm::Value*, llvm::Value*, llvm::Twine const&);
 

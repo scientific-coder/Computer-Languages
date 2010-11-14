@@ -171,12 +171,7 @@ int main(int argc, char* argv[]){
   if (r && iter == end) {
     std::cout<<"parsing succeded !\n";
     verifyModule(*module_ptr, PrintMessageAction);
-    PassManager PM;
-    std::string out_data;
-    llvm::raw_string_ostream output(out_data);
-    PM.add(createPrintModulePass(&output));
-    PM.run(*module_ptr);
-    std::cout<<output.str()<<std::endl;
+    module_ptr->dump();
   } else {
     std::string rest(iter, end);
     std::cerr << "parsing failed\n" << "stopped at: \"" << rest << "\"\n";
