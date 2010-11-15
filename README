@@ -1,4 +1,6 @@
-This project contains examples on how to build interpreters and compilers with the Spirit parser library and the LLVM backend.
+# Boost::Spirit + LLVM = WIN !
+
+## This project contains examples on how to build interpreters and compilers with the Spirit parser library and the LLVM backend.
 
 This is a work in progress, with for now, only the first examples as self-contained c++ programs (hence the dupplication). After launching the programs, you have to feed the "code" on standard input
 (Ctrl-d to end input when interactive).
@@ -16,6 +18,9 @@ entry:
   ret i32 7
 }
 
+and then exec the code to print the result:
+result: 7
+
 For illustrative purposes, you should hack IRBuilder to remove the constant folding.
 
 lang-2 adds variables (var a; var b=...;) and statements must end with a ';'
@@ -24,3 +29,8 @@ the program must end with a return statement (return ... ;)
 lang-3 adds if else control structure and ternary operators.
 
 To be continued ...
+
+# TODO: 
+* handle while(){} and then make an llvm-backed calc7
+* handle scopes with symbols_stack
+* handle function definitions
