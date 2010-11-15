@@ -31,10 +31,14 @@
 #include <llvm/Analysis/Verifier.h>
 #include <llvm/Assembly/PrintModulePass.h>
 #include <llvm/Support/IRBuilder.h>
-//#include "IRBuilderNoFold.h" // local hack to remove constant folding for illustrative purposes
 #include <llvm/Support/raw_ostream.h>
-
-
+#include <llvm/DerivedTypes.h>
+#include <llvm/ExecutionEngine/ExecutionEngine.h>
+#include <llvm/Target/TargetData.h>
+#include <llvm/Target/TargetSelect.h>
+#include <llvm/Transforms/Scalar.h>
+#include <llvm/ExecutionEngine/JIT.h>
+//#include "IRBuilderNoFold.h" // local hack to remove constant folding for illustrative purposes
 
 using namespace llvm;
 /*
@@ -127,9 +131,6 @@ struct language_3_grammar : grammar<Iterator, boost::spirit::standard::space_typ
 
   template<Value* (IRBuilder<>::*)(Value*, Value*, const Twine&)> struct binary_op{};
   template<Value* (IRBuilder<>::*)(Value*, const Twine&)> struct unary_op{};
-
-  
-
 
   typedef binary_op<&IRBuilder<>::CreateOr> logical_or_t; //
   typedef binary_op<&IRBuilder<>::CreateAnd> logical_and_t;//
@@ -425,6 +426,29 @@ rule<Iterator, locals<if_then_else_t>, boost::spirit::standard::space_type> if_t
 rule<Iterator, void(AllocaInst*), locals<Value*>, boost::spirit::standard::space_type> assignment_rhs;
 };
 
+
+template<typename V>
+bool exec_function(llvm::Module& module, std::string const& function_name="main")
+{
+  static bool init_done(false);
+  if(!init_done){
+    llvm::InitializeNativeTarget();
+    init_done= true;
+  }
+  std::string ErrStr;
+  llvm::ExecutionEngine* exec_engine_ptr= llvm::EngineBuilder(&module).setErrorStr(&ErrStr).create();
+  if (!exec_engine_ptr) {
+    std::cerr<<"Could not create ExecutionEngine:"<< ErrStr.c_str()<<std::endl;
+    return false;
+  }
+  typedef V (*fun_ptr_t)(void);
+  fun_ptr_t fun_ptr = 
+    reinterpret_cast<fun_ptr_t>(exec_engine_ptr->getPointerToFunction(module.getFunction(function_name)));
+  std::cout<<"result: "<<(*fun_ptr)()<<std::endl;
+  return true;
+}
+
+
 int main(int argc, char* argv[]){
   typedef float value_t; // type used in arithmetic computations
 
@@ -446,6 +470,7 @@ int main(int argc, char* argv[]){
     std::cout<<"parsing succeded !\n";
     verifyModule(module, PrintMessageAction);
     module.dump();
+    exec_function<value_t>(module, "main");
   } else {
     std::string rest(iter, end);
     std::cerr << "parsing failed\n" << "stopped at: \"" << rest << "\"\n";
