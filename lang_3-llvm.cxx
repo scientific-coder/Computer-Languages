@@ -472,12 +472,32 @@ bool exec_function(llvm::Module& module, std::string const& function_name="main"
     llvm::InitializeNativeTarget();
     init_done= true;
   }
+  FunctionPassManager fpm(&module);
+
   std::string ErrStr;
   llvm::ExecutionEngine* exec_engine_ptr= llvm::EngineBuilder(&module).setErrorStr(&ErrStr).create();
   if (!exec_engine_ptr) {
     std::cerr<<"Could not create ExecutionEngine:"<< ErrStr.c_str()<<std::endl;
     return false;
   }
+  // Set up the optimizer pipeline.  Start with registering info about how the
+  // target lays out data structures.
+  fpm.add(new llvm::TargetData(*exec_engine_ptr->getTargetData()));
+  // Do simple "peephole" optimizations and bit-twiddling optzns.
+  fpm.add(llvm::createInstructionCombiningPass());
+  // Reassociate expressions.
+  fpm.add(llvm::createReassociatePass());
+  // Eliminate Common SubExpressions.
+  fpm.add(llvm::createGVNPass());
+  // Simplify the control flow graph (deleting unreachable blocks, etc).
+  fpm.add(llvm::createCFGSimplificationPass());
+
+  fpm.doInitialization();
+  fpm.run(*module.getFunction(function_name));
+
+  std::cout<<"after optimization:\n";
+  module.dump();
+
   typedef V (*fun_ptr_t)(void);
   fun_ptr_t fun_ptr = 
     reinterpret_cast<fun_ptr_t>(exec_engine_ptr->getPointerToFunction(module.getFunction(function_name)));
