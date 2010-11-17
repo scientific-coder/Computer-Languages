@@ -113,6 +113,8 @@ template<>  struct  numeric_parser<long double>{
 
 numeric_parser<long double>::type numeric_parser<long double>::parser=long_double;
 
+char const* const noname="";
+
 // now the real deal, at last ! :-)
 // arithmetic expression grammar, using semantic actions to create llvm internal representation
 template <typename value_t, typename Iterator>
@@ -123,11 +125,11 @@ struct language_3_grammar : grammar<Iterator, boost::spirit::standard::space_typ
 
   //only used to select overload of builder_helper operator()
   struct return_tag{}; struct if_tag{}; struct else_tag{}; struct end_if_tag{};
-  struct end_ternary_tag{};
+  struct end_ternary_tag{}; struct while_begin_tag{}; struct while_condition_tag{}; struct while_end_tag{};
 
   // data created when generating the "if", to be used by "else" and "end_if" generations
-  typedef boost::fusion::vector<Function*, BasicBlock*, BasicBlock*, BasicBlock*> if_then_else_t;
-
+  // also used when generating ternary operations and "while" blocks.
+  typedef boost::fusion::vector<Function*, BasicBlock*, BasicBlock*, BasicBlock*> control_flow_t;
 
   template<Value* (IRBuilder<>::*)(Value*, Value*, const Twine&)> struct binary_op{};
   template<Value* (IRBuilder<>::*)(Value*, const Twine&)> struct unary_op{};
@@ -183,12 +185,15 @@ struct builder_helper{
   template<typename T1, typename T2=void, typename T3=void, typename T4=void> 
   struct result {
     // dispatch on first arg type using a map to handle most cases
-  typedef typename boost::mpl::at<boost::mpl::map<boost::mpl::pair<AllocaInst*, Value*>
-						    , boost::mpl::pair<std::string, AllocaInst*>
+    typedef typename boost::mpl::at<boost::mpl::map<boost::mpl::pair<AllocaInst*, Value*>
+                                                    , boost::mpl::pair<std::string, AllocaInst*>
 						    , boost::mpl::pair<return_tag, ReturnInst*>
-						    , boost::mpl::pair<if_tag, if_then_else_t>
+						    , boost::mpl::pair<if_tag, control_flow_t>
 						    , boost::mpl::pair<else_tag, void>
-						    , boost::mpl::pair<end_if_tag, void> >
+						    , boost::mpl::pair<end_if_tag, void> 
+						    , boost::mpl::pair<while_begin_tag, control_flow_t>
+						    , boost::mpl::pair<while_condition_tag, void>
+                                                    , boost::mpl::pair<while_end_tag, void> >
 				    , T1 >::type need_default;
     // (AllocaInst*, Value*) is a store, not a read, so we set return type to StoreInst* instead of Value*
     // and set default to Value* instead of void_
@@ -266,36 +271,65 @@ struct builder_helper{
   }
   // if statement : performs test and create then, else and end_if BasicBlock
   // returns <parent_function, else_BB, end_if_BB> to be used by else and end_if statements
-  if_then_else_t operator()(if_tag /*unused*/, Value *expression) const{
+  control_flow_t operator()(if_tag /*unused*/, Value *expression) const{
     // get pointer to parent_function and create instruction blocks
     Function * parent_function = builder.GetInsertBlock()->getParent();
     BasicBlock * then_BB = BasicBlock::Create(getGlobalContext(), " then", parent_function);
     BasicBlock * else_BB = BasicBlock::Create(getGlobalContext()," else");
     BasicBlock * end_if_BB = BasicBlock::Create(getGlobalContext()," end_if");
     // create test & branch instruction      
+    // could use builder.CreateFCmpONE(expression,(*this)(static_cast<value_t>(0)), "if"))
     builder.CreateCondBr(builder.CreateIsNull(to_boolean(expression), "if"), else_BB, then_BB); 
     builder.SetInsertPoint(then_BB); // set then block and start using it
     // return data to be used for else block and end_if
-    return if_then_else_t(parent_function, then_BB, else_BB, end_if_BB);
+    return control_flow_t(parent_function, then_BB, else_BB, end_if_BB);
   }
 
   // else statement : called even when there is no "else{...}" in the code to close then block 
   // and start (possibly empty) else block 
-  void operator()(else_tag /* unused */, if_then_else_t const & parent_then_else_endif) const {
+  void operator()(else_tag /* unused */, control_flow_t const & parent_then_else_endif) const {
     builder.CreateBr(boost::fusion::at_c<3>(parent_then_else_endif));// jump to endif
     boost::fusion::at_c<0>(parent_then_else_endif)
       ->getBasicBlockList().push_back(boost::fusion::at_c<2>(parent_then_else_endif));
     builder.SetInsertPoint(boost::fusion::at_c<2>(parent_then_else_endif));// set else block
-    return ;
   }
 
   void operator()(end_if_tag /*unused */, Function* parent_function, BasicBlock* end_if_BB) const {
     builder.CreateBr(end_if_BB); // jump to end_if
     parent_function->getBasicBlockList().push_back(end_if_BB);// set end_if block
     builder.SetInsertPoint(end_if_BB); // and start using it
-    return ;
   }
-  Value* operator()(end_ternary_tag /*unused*/, if_then_else_t const& p_t_e_e
+
+  // if statement : performs test and create then, else and end_if BasicBlock
+  // returns <parent_function, else_BB, end_if_BB> to be used by else and end_if statements
+  control_flow_t operator()(while_begin_tag /*unused*/) const {
+    // get pointer to parent_function and create instruction blocks
+    Function * parent_function = builder.GetInsertBlock()->getParent();
+    BasicBlock * while_begin_BB = BasicBlock::Create(getGlobalContext(), " while_begin", parent_function);
+    BasicBlock * while_is_true_BB = BasicBlock::Create(getGlobalContext()," while_is_true");
+    BasicBlock * while_is_false_BB = BasicBlock::Create(getGlobalContext()," while_is_false");
+    builder.CreateBr(while_begin_BB);
+    builder.SetInsertPoint(while_begin_BB);
+    return control_flow_t(parent_function, while_begin_BB, while_is_true_BB, while_is_false_BB);
+  }
+  void operator()(while_condition_tag /*unused*/, control_flow_t const& parent_begin_true_false, Value *expression) const {
+    // create test & branch instruction      
+    builder.CreateCondBr(builder.CreateIsNull(to_boolean(expression), "while_test")
+                         , boost::fusion::at_c<3>(parent_begin_true_false)
+                         , boost::fusion::at_c<2>(parent_begin_true_false)); 
+    boost::fusion::at_c<0>(parent_begin_true_false)->getBasicBlockList().push_back(boost::fusion::at_c<2>(parent_begin_true_false));
+    builder.SetInsertPoint(boost::fusion::at_c<2>(parent_begin_true_false));
+  }
+
+  void operator()(while_end_tag /* unused */, control_flow_t const& parent_begin_true_false) const {
+    builder.CreateBr(boost::fusion::at_c<1>(parent_begin_true_false));// jump to begin
+    boost::fusion::at_c<0>(parent_begin_true_false)
+      ->getBasicBlockList().push_back(boost::fusion::at_c<3>(parent_begin_true_false));
+    builder.SetInsertPoint(boost::fusion::at_c<3>(parent_begin_true_false));// set end (false)
+  }
+
+
+  Value* operator()(end_ternary_tag /*unused*/, control_flow_t const& p_t_e_e
 		    , Value* then_v, Value* else_v) const {
     (*this)(end_if_tag(), boost::fusion::at_c<0>(p_t_e_e), boost::fusion::at_c<3>(p_t_e_e));
     PHINode * phi = builder.CreatePHI(type<value_t>(),"ternary_merge");
@@ -303,7 +337,6 @@ struct builder_helper{
     phi->addIncoming(else_v, boost::fusion::at_c<2>(p_t_e_e));
     return phi;
   }
-
 
   // constant values
   Value* operator()(short v) const { return ConstantInt::get(getGlobalContext(), APInt(sizeof(short)*8, v)); }
@@ -321,8 +354,7 @@ language_3_grammar( IRBuilder<>& p)
   reserved_keywords = "var", "return", "if", "else";
 
   program =  code_block >> return_statement;
-
-  code_block = *(variable_declaration | assignment | if_then_else);
+  code_block = *(variable_declaration | assignment | if_then_else | while_);
   // we want to enforce the space after "return" so we must disable the skipper with lexeme[]
   return_statement = lexeme["return" >> boost::spirit::standard::space] >> additive_expression[_val=build(return_tag(), _1)]>>';' ;
 
@@ -336,7 +368,13 @@ language_3_grammar( IRBuilder<>& p)
     // build(end_if_tag(), parent_function, end_if_block) must always be called 
     >> eps[build(end_if_tag(), boost::phoenix::at_c<0>(_a), boost::phoenix::at_c<3>(_a))]
     ;
-  
+
+  while_ = lit("while")[_a=build(while_begin_tag())] 
+    // build(while_tag, test_expression) returns <parent_function, start_loop, end_loop>
+    >> '(' >> expression[build(while_condition_tag(),_a, _1)] >> ')'
+    >> '{' >> code_block >> boost::spirit::standard::char_('}')[build(while_end_tag(), _a)]
+    ;
+
   expression = ternary_expression[_val= _1];
 
   ternary_expression =  logical_or_expression[_val=_1]
@@ -405,7 +443,6 @@ language_3_grammar( IRBuilder<>& p)
   assignment = id_declared_var [_a = _1] >> '=' >> assignment_rhs(_a);
     
   assignment_rhs = expression[_a=_1] >> boost::spirit::standard::char_(';')[build(_r1, _a)];
-    
 }
 
 boost::spirit::qi::symbols<char, unused_type> reserved_keywords;
@@ -417,12 +454,12 @@ rule<Iterator, Value*(), boost::spirit::standard::space_type> expression
   , logical_or_expression, logical_and_expression, equality_expression, compare_expression
   , additive_expression,  multiplicative_expression, unary_expression, primary_expression
   , numeric_to_val, variable ;
-rule<Iterator, Value*(), locals<if_then_else_t, Value*>, boost::spirit::standard::space_type> ternary_expression;
+rule<Iterator, Value*(), locals<control_flow_t, Value*>, boost::spirit::standard::space_type> ternary_expression;
 rule<Iterator, locals<AllocaInst*>, boost::spirit::standard::space_type> variable_declaration, assignment;
 rule<Iterator, AllocaInst*(), boost::spirit::standard::space_type> id_declared_var;
 rule<Iterator, std::string(), boost::spirit::standard::space_type> id_declaration;
 rule<Iterator, boost::spirit::standard::space_type> program, code_block, return_statement;
-rule<Iterator, locals<if_then_else_t>, boost::spirit::standard::space_type> if_then_else;
+  rule<Iterator, locals<control_flow_t>, boost::spirit::standard::space_type> if_then_else, while_;
 rule<Iterator, void(AllocaInst*), locals<Value*>, boost::spirit::standard::space_type> assignment_rhs;
 };
 
@@ -450,7 +487,7 @@ bool exec_function(llvm::Module& module, std::string const& function_name="main"
 
 
 int main(int argc, char* argv[]){
-  typedef float value_t; // type used in arithmetic computations
+  typedef double value_t; // type used in arithmetic computations
 
   std::cin.unsetf(std::ios::skipws); //  Turn off white space skipping on the stream
   typedef std::string buffer_t;
@@ -464,6 +501,7 @@ int main(int argc, char* argv[]){
 				   cast<Function>(module.getOrInsertFunction("main"
 									     , type<value_t>()
 									     , NULL))));
+  //ExecutionEngine::addGlobalMapping
   grammar_t grammar(p);
   bool r = phrase_parse(iter, end, grammar, boost::spirit::standard::space);// allow trailing spaces
   if (r && iter == end) {
