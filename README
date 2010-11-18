@@ -26,11 +26,11 @@ For illustrative purposes, you should hack IRBuilder to remove the constant fold
 lang-2 adds variables (var a; var b=...;) and statements must end with a ';'
 the program must end with a return statement (return ... ;)
 
-lang-3 adds if else control structure and ternary operators.
+lang-3 adds if{} [else{}] and while(){} control structures and ternary operators.
 
 To be continued ...
 
 # TODO: 
-* handle while(){} and then make an llvm-backed calc7
+* and then make an llvm-backed calc7
 * handle scopes with symbols_stack
 * handle function definitions
