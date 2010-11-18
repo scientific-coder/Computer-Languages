@@ -22,8 +22,8 @@
 #include <llvm/Target/TargetSelect.h>
 #include <llvm/Transforms/Scalar.h>
 #include <llvm/ExecutionEngine/JIT.h>
-
-//#include "IRBuilderNoFold.h" // removed folding from the IRBuilder because there are only constants in lang_1 !
+// see http://lists.cs.uiuc.edu/pipermail/llvm-commits/Week-of-Mon-20101115/112020.html
+#include <llvm/Support/NoFolder.h>
 
 using namespace llvm;
 
@@ -85,15 +85,15 @@ template<>  struct  numeric_parser<long double>{
 numeric_parser<long double>::type numeric_parser<long double>::parser=long_double;
 
 // arithmetic expression grammar, using actions to insert nodes into the AST
-template <typename value_t, typename Iterator>
+template <typename value_t, typename Iterator, typename Builder>
 struct language_1_grammar : grammar<Iterator, Module*(), boost::spirit::standard::space_type> {
 
  struct builder_helper{
    template<typename T1, typename T2=T1, typename T3=T2, typename T4=T3> struct result{ typedef Value* type;};
-   builder_helper(IRBuilder<>& b):builder(b){}
-   typedef Value* (IRBuilder<>::*binary_op_t)(Value*, Value*, const Twine&);
-   typedef Value* (IRBuilder<>::*unary_op_t)(Value*, const Twine&);
-   typedef ReturnInst* (llvm::IRBuilder<>::*op_no_name )(Value*);
+   builder_helper(Builder& b):builder(b){}
+   typedef Value* (Builder::*binary_op_t)(Value*, Value*, const Twine&);
+   typedef Value* (Builder::*unary_op_t)(Value*, const Twine&);
+   typedef ReturnInst* (Builder::*op_no_name )(Value*);
 
    Value* operator()(binary_op_t op, Value* a1, Value* a2, const char * name) const
    { return (builder.*op)(a1, a2, name); }
@@ -107,35 +107,35 @@ struct language_1_grammar : grammar<Iterator, Module*(), boost::spirit::standard
    Value* operator()(float v) const { return ConstantFP::get(getGlobalContext(), APFloat(v)); }
    Value* operator()(double v)const{ return ConstantFP::get(getGlobalContext(), APFloat(v)); }
 
-   IRBuilder<>& builder;
+   Builder& builder;
  };
 
   language_1_grammar(char const * const name) 
   : language_1_grammar::base_type(module),
     module_ptr(new Module(name, getGlobalContext()))
-  , build(*(new IRBuilder<>(BasicBlock::Create(getGlobalContext(),"entry",
+  , build(*(new Builder(BasicBlock::Create(getGlobalContext(),"entry",
 					       cast<Function>(module_ptr->getOrInsertFunction("main", type<value_t>(), NULL))))))
     
 {
   module = program[_val=module_ptr];
 
-  program = additive_expression [_val=build(&IRBuilder<>::CreateRet,_1)]
+  program = additive_expression [_val=build(&Builder::CreateRet,_1)]
     ;
 
   additive_expression =
     multiplicative_expression               [_val=_1]
        >> *(
 	 ('+' >> multiplicative_expression  
-	  [_val= build(&IRBuilder<>::CreateAdd, _val, _1,"addtmp")])
+	  [_val= build(&Builder::CreateAdd, _val, _1,"addtmp")])
 	 |('-' >> multiplicative_expression 
-	   [_val=build(&IRBuilder<>::CreateSub, _val, _1,"subtmp")])
+	   [_val=build(&Builder::CreateSub, _val, _1,"subtmp")])
 				      )
     ;
     multiplicative_expression =
       factor               [_val=_1]
        >> *(
-	   ('*' >> factor[_val= build(&IRBuilder<>::CreateMul, _val, _1, "multmp")])
-	   |('/' >> factor [_val = build(&IRBuilder<>::CreateSDiv, _val, _1, "divtmp")])
+	   ('*' >> factor[_val= build(&Builder::CreateMul, _val, _1, "multmp")])
+	   |('/' >> factor [_val = build(&Builder::CreateSDiv, _val, _1, "divtmp")])
 	   )
       ;
 
@@ -143,7 +143,7 @@ struct language_1_grammar : grammar<Iterator, Module*(), boost::spirit::standard
       numeric_to_val             [_val=_1]
       | '(' >> additive_expression  [_val=_1] >> ')'
       |   ('-' >> factor
-	   [_val= build(&IRBuilder<>::CreateNeg, _1,"negtmp")]
+	   [_val= build(&Builder::CreateNeg, _1,"negtmp")]
 	   )
       |   ('+' >> factor          [_val=_1])
       ;
@@ -170,7 +170,7 @@ int main(int argc, char* argv[]){
   typedef buffer_t::const_iterator iter_t;
   iter_t iter(buffer.begin()), end(buffer.end());
 
-  typedef language_1_grammar<value_t, iter_t> grammar_t;
+  typedef language_1_grammar<value_t, iter_t, llvm::IRBuilder<true, NoFolder> > grammar_t;
   Module* module_ptr(0);
   grammar_t grammar("lang_1");
   bool r = phrase_parse(iter, end, grammar, boost::spirit::standard::space, module_ptr);

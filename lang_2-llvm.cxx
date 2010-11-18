@@ -21,7 +21,8 @@
 #include <llvm/Transforms/Scalar.h>
 #include <llvm/ExecutionEngine/JIT.h>
 
-//#include "IRBuilderNoFold.h" // 
+// see http://lists.cs.uiuc.edu/pipermail/llvm-commits/Week-of-Mon-20101115/112020.html
+#include <llvm/Support/NoFolder.h>
 
 using namespace llvm;
 
@@ -94,7 +95,7 @@ template<>  struct  numeric_parser<long double>{
 
 // now the real deal, at last ! :-)
 // arithmetic expression grammar, using semantic actions to create llvm internal representation
-template <typename value_t, typename Iterator>
+template <typename value_t, typename Iterator, typename Builder>
 struct language_2_grammar : grammar<Iterator, space_type> {
 
   // symbols map use to store varables names and map them to the relevant llvm node
@@ -104,8 +105,8 @@ struct language_2_grammar : grammar<Iterator, space_type> {
   // (ab)using a lot boost::phoenix::function<> ability to overload operator() !
   struct builder_helper{
     // typedef to ease to use of pointers to member function
-    typedef Value* (IRBuilder<>::*binary_op_t)(Value*, Value*, const Twine&);
-    typedef Value* (IRBuilder<>::*unary_op_t)(Value*, const Twine&);
+    typedef Value* (Builder::*binary_op_t)(Value*, Value*, const Twine&);
+    typedef Value* (Builder::*unary_op_t)(Value*, const Twine&);
     // template structs to have different result type according to the argument types
   // template structs to have different result type according to the argument types
     //def -> Value*
@@ -123,7 +124,7 @@ struct language_2_grammar : grammar<Iterator, space_type> {
 							   , ReturnInst*
 							   , Value*>::type >::type > {};
 
-    builder_helper(vars_t &v, IRBuilder<>& b):vars(v), builder(b){}
+    builder_helper(vars_t &v, Builder& b):vars(v), builder(b){}
     
     // binary operations
     Value* operator()(binary_op_t op, Value* a1, Value* a2, const char * name) const
@@ -152,10 +153,10 @@ struct language_2_grammar : grammar<Iterator, space_type> {
     Value* operator()(double v)const { return ConstantFP::get(getGlobalContext(), APFloat(v)); }// is overloaded
 
     vars_t& vars;
-    IRBuilder<>& builder;
+    Builder& builder;
   };
   
-  language_2_grammar( IRBuilder<>& ir) 
+  language_2_grammar( Builder& ir) 
     : language_2_grammar::base_type(program), build(builder_helper(vars, ir)) {
     reserved_keywords = "var", "return";
 
@@ -168,21 +169,21 @@ struct language_2_grammar : grammar<Iterator, space_type> {
       multiplicative_expression               [_val=_1]
       >> *(
 	   ('+' >> multiplicative_expression 
-	    [_val= build(&IRBuilder<>::CreateAdd, _val, _1,"addtmp")])
+	    [_val= build(&Builder::CreateAdd, _val, _1,"addtmp")])
 	 |('-' >> multiplicative_expression 
-	   [_val=build(&IRBuilder<>::CreateSub, _val, _1,"subtmp")])
+	   [_val=build(&Builder::CreateSub, _val, _1,"subtmp")])
 	 )
 	 ;
     multiplicative_expression =
       unary_expression               [_val=_1]
        >> *(
-	   ('*' >> unary_expression[_val= build(&IRBuilder<>::CreateMul, _val, _1, "multmp")])
-	   |('/' >> unary_expression [_val = build(&IRBuilder<>::CreateSDiv, _val, _1, "divtmp")])
+	   ('*' >> unary_expression[_val= build(&Builder::CreateMul, _val, _1, "multmp")])
+	   |('/' >> unary_expression [_val = build(&Builder::CreateSDiv, _val, _1, "divtmp")])
 	   )
       ;
     unary_expression =
       primary_expression[_val = _1]
-      |   ('-' >> primary_expression[_val= build(&IRBuilder<>::CreateNeg, _1,"negtmp")])
+      |   ('-' >> primary_expression[_val= build(&Builder::CreateNeg, _1,"negtmp")])
       |   ('+' >> primary_expression[_val= _1])
       ;
     primary_expression =
@@ -253,9 +254,10 @@ int main(int argc, char* argv[]){
   typedef buffer_t::const_iterator iter_t;
   iter_t iter(buffer.begin()), end(buffer.end());
 
-  typedef language_2_grammar<value_t, iter_t> grammar_t;
+  typedef llvm::IRBuilder<true, NoFolder> builder_t;
+  typedef language_2_grammar<value_t, iter_t, builder_t> grammar_t;
   Module module("lang2", getGlobalContext());
-  IRBuilder<> ir(BasicBlock::Create(getGlobalContext(), "entry",
+  builder_t ir(BasicBlock::Create(getGlobalContext(), "entry",
 						    cast<Function>(module.getOrInsertFunction("main", type<value_t>(), NULL))));
   grammar_t grammar(ir);
   bool r = phrase_parse(iter, end, grammar, space);

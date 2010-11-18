@@ -5,23 +5,31 @@
 This is a work in progress, with for now, only the first examples as self-contained c++ programs (hence the dupplication). After launching the programs, you have to feed the "code" on standard input
 (Ctrl-d to end input when interactive).
 
-* lang-1 only contains artihmetic expressions. The result with the real LLVM IRBuilder is not impressive because it does constant folding :)
+* lang-1 only contains artihmetic expressions.
 So if you type :
-1+3*(4-2)
-
+"
+1+2*(3+1)-1/2
+"
+<and Ctrl-d>
 it will output:
+"
 parsing succeded !
 ; ModuleID = 'lang_1'
 
 define i32 @main() {
 entry:
-  ret i32 7
+  %addtmp = add i32 3, 1
+  %multmp = mul i32 2, %addtmp
+  %addtmp1 = add i32 1, %multmp
+  %divtmp = sdiv i32 1, 2
+  %subtmp = sub i32 %addtmp1, %divtmp
+  ret i32 %subtmp
 }
-
+"
 and then exec the code to print the result:
-result: 7
-
-For illustrative purposes, you should hack IRBuilder to remove the constant folding.
+"
+result: 9
+"
 
 lang-2 adds variables (var a; var b=...;) and statements must end with a ';'
 the program must end with a return statement (return ... ;)
