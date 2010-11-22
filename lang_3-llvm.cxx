@@ -25,6 +25,7 @@
 #include <boost/spirit/include/phoenix_function.hpp>
 #include <boost/spirit/home/phoenix/fusion/at.hpp>
 #include <boost/spirit/home/qi/string/symbols.hpp>
+#include <boost/spirit/include/qi_auto.hpp>
 
 #include <llvm/LLVMContext.h>
 #include <llvm/Module.h>
@@ -75,58 +76,33 @@ namespace mpl = boost::mpl;
 // template function to map  C++ type -> llvm::Type
 template<typename T> static const llvm::Type* type(){ return "unkown type!";}// error
 
-#define MAP_TYPE(cpp_type_, fn_)                        \
-  template <>                                           \
-  const llvm::Type* type<cpp_type_>() {                 \
-    return llvm::Type::fn_(llvm::getGlobalContext());   \
+#define MAP_INT_TYPE(cpp_type_)                                         \
+  template <>                                                           \
+  const llvm::Type* type<cpp_type_>() {                                 \
+    return llvm::Type::getIntNTy(llvm::getGlobalContext()               \
+                                 , sizeof(cpp_type_)*8);                \
   }
 
-#if 0
-should use
-static const Type* getVoidTy(LLVMContext &C);
-static const Type* getLabelTy(LLVMContext &C);
-static const Type* getFloatTy(LLVMContext &C);
-static const Type* getDoubleTy(LLVMContext &C);
-static const Type* getMetadataTy(LLVMContext &C);
-static const Type* getX86_FP80Ty(LLVMContext &C);
-static const Type* getFP128Ty(LLVMContext &C);
-static const Type* getPPC_FP128Ty(LLVMContext &C);
-static const IntegerType* getIntNTy(LLVMContext &C, unsigned N);
-static const IntegerType* getInt1Ty(LLVMContext &C);
-static const IntegerType* getInt8Ty(LLVMContext &C);
-static const IntegerType* getInt16Ty(LLVMContext &C);
-static const IntegerType* getInt32Ty(LLVMContext &C);
-static const IntegerType* getInt64Ty(LLVMContext &C);
-#endif
+#define MAP_TYPE(cpp_type_, fn_)                                        \
+  template <>                                                           \
+  const llvm::Type* type<cpp_type_>() {                                 \
+    return llvm::Type::fn_(llvm::getGlobalContext());                   \
+  }
+
 MAP_TYPE(void, getVoidTy)
-MAP_TYPE(int, getInt32Ty)
-MAP_TYPE(long, getInt64Ty)
+MAP_INT_TYPE(char)
+MAP_INT_TYPE(short)
+MAP_INT_TYPE(int)
+MAP_INT_TYPE(long)
+MAP_INT_TYPE(long long)
 MAP_TYPE(float, getFloatTy)
 MAP_TYPE(double, getDoubleTy)
-
+// long double is more tricky
+#undef MAP_INT_TYPE
 #undef MAP_TYPE
 
 
 
-// template structs to map C++ type -> Spirit2 numeric parser
-template<typename T> struct numeric_parser {};
-
-#define MAP_PARSER(cpp_type_, type_, parser_)                           \
-  template <>                                                           \
-  struct numeric_parser<cpp_type_> {                                    \
-    typedef const qi::type_ type;                                       \
-    static type parser;                                                 \
-  };                                                                    \
-  numeric_parser<cpp_type_>::type numeric_parser<cpp_type_>::parser = qi::parser_
-
-MAP_PARSER(short, short__type, short_);
-MAP_PARSER(int, int__type, int_);
-MAP_PARSER(long, long__type, long_);
-MAP_PARSER(float, float__type, float_);
-MAP_PARSER(double, double__type, double_);
-MAP_PARSER(long double, long_double_type, long_double);
-
-#undef MAP_PARSER
 
 
 // now the real deal, at last ! :-)
@@ -280,7 +256,7 @@ typename boost::enable_if< boost::is_integral<value_t>, T*
   // binary operations
   template<builder_fun2_t mem_fun>
   Value* operator()(binary_op<mem_fun> /* unused */
-                    , Value* a1, Value* a2, char* const name) const
+                    , Value* a1, Value* a2, char const* name) const
   { return cast_result<binary_op<mem_fun> >((builder.*mem_fun)(a1, a2, name)); }
 
   // return instruction
@@ -467,11 +443,11 @@ language_3_grammar( Builder& b)
 
   additive_expression = multiplicative_expression [_val=_1]
     >> *(('+' >> multiplicative_expression [_val= build(add_t(), _val, _1,"addtmp")])
-	 |('-' >> multiplicative_expression [_val=build(sub_t(), _val, _1,"subtmp")]));
+  	 |('-' >> multiplicative_expression [_val=build(sub_t(), _val, _1,"subtmp")]));
 
   multiplicative_expression = unary_expression [_val=_1]
     >> *(('*' >> unary_expression[_val= build(mul_t(), _val, _1, "multmp")])
-	 |('/' >> unary_expression [_val = build(div_t(), _val, _1, "divtmp")]));
+         |('/' >> unary_expression [_val = build(div_t(), _val, _1, "divtmp")]));
   
   unary_expression = 
     primary_expression[_val = _1]
@@ -483,7 +459,7 @@ language_3_grammar( Builder& b)
     | id_declared_var [_val = build(_1)]
     | '(' >> ternary_expression  [_val = _1] >> ')' ;
 
-  numeric_to_val = numeric_parser<value_t>::parser[_val = build(_1)];
+  numeric_to_val = boost::spirit::traits::create_parser<value_t>::call()[_val = build(_1)];
 
   variable = id_declared_var[_val = build(_1)];
 
@@ -591,14 +567,14 @@ bool exec_function(llvm::Module& module, std::string const& function_name="main"
 
 
 int main(int argc, char* argv[]){
-  typedef double value_t; // type used in arithmetic computations
+  typedef int value_t; // type used in arithmetic computations
 
   std::cin.unsetf(std::ios::skipws); //  Turn off white space skipping on the stream
   typedef std::string buffer_t;
   buffer_t buffer(std::istream_iterator<char>(std::cin), (std::istream_iterator<char>()));
   typedef buffer_t::const_iterator iter_t;
   iter_t iter(buffer.begin()), end(buffer.end());
-  typedef llvm::IRBuilder<true/*, llvm::NoFolder*/> builder_t;
+  typedef llvm::IRBuilder<true, llvm::NoFolder> builder_t;
   typedef language_3_grammar<value_t, iter_t, builder_t> grammar_t;
   llvm::Module module("lang_3", llvm::getGlobalContext());
   builder_t b(llvm::BasicBlock::Create(llvm::getGlobalContext(), "entry",

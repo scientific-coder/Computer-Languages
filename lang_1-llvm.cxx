@@ -34,55 +34,35 @@ using namespace boost::spirit;
 using namespace boost::spirit::qi;
 using namespace boost::spirit::ascii;
 
+// template function to map  C++ type -> llvm::Type
+template<typename T> static const llvm::Type* type(){ return "unkown type!";}// error
+
+#define MAP_INT_TYPE(cpp_type_)                                         \
+  template <>                                                           \
+  const llvm::Type* type<cpp_type_>() {                                 \
+    return llvm::Type::getIntNTy(llvm::getGlobalContext()               \
+                                 , sizeof(cpp_type_)*8);                \
+  }
+
+#define MAP_TYPE(cpp_type_, fn_)                                        \
+  template <>                                                           \
+  const llvm::Type* type<cpp_type_>() {                                 \
+    return llvm::Type::fn_(llvm::getGlobalContext());                   \
+  }
+
+MAP_TYPE(void, getVoidTy)
+MAP_INT_TYPE(char)
+MAP_INT_TYPE(short)
+MAP_INT_TYPE(int)
+MAP_INT_TYPE(long)
+MAP_INT_TYPE(long long)
+MAP_TYPE(float, getFloatTy)
+MAP_TYPE(double, getDoubleTy)
+// long double is more tricky
+#undef MAP_INT_TYPE
+#undef MAP_TYPE
 
 
-template<typename T> static const Type* type(){ return "unkown type!";}// error
-template<> const Type* type<void>()  { return Type::getVoidTy(getGlobalContext());}
-template<> const Type* type<int>()   { return Type::getInt32Ty(getGlobalContext());}
-template<> const Type* type<long>()  { return Type::getInt64Ty(getGlobalContext());}
-template<> const Type* type<float>() { return Type::getFloatTy(getGlobalContext());}
-template<> const Type* type<double>(){ return Type::getDoubleTy(getGlobalContext());}
-
-
-template<typename T> struct numeric_parser{};
-
-template<>  struct numeric_parser<short>{
-  typedef const short__type type;
-  static type parser;
-};
-numeric_parser<short>::type numeric_parser<short>::parser=short_;
-
-template<> struct   numeric_parser<int>{
-  typedef const int__type type;
-  static type parser;
-};
-numeric_parser<int>::type numeric_parser<int>::parser=int_;
-
-template<>  struct  numeric_parser<long>{
-  typedef const long__type type;
-  static type parser;
-};
-numeric_parser<long>::type numeric_parser<long>::parser=long_;
-
-template<>  struct  numeric_parser<float>{
-  typedef const float__type type;
-  static type parser;
-};
-numeric_parser<float>::type numeric_parser<float>::parser=float_;
-
-template<>  struct  numeric_parser<double>{
-  typedef const double__type type;
-  static type parser;
-};
-
-numeric_parser<double>::type numeric_parser<double>::parser=double_;
-
-template<>  struct  numeric_parser<long double>{
-  typedef const long_double_type type;
-  static type parser;
-};
-
-numeric_parser<long double>::type numeric_parser<long double>::parser=long_double;
 
 // arithmetic expression grammar, using actions to insert nodes into the AST
 template <typename value_t, typename Iterator, typename Builder>
@@ -147,7 +127,7 @@ struct language_1_grammar : grammar<Iterator, Module*(), boost::spirit::standard
 	   )
       |   ('+' >> factor          [_val=_1])
       ;
-    numeric_to_val = numeric_parser<value_t>::parser[_val=build(_1)];
+    numeric_to_val = boost::spirit::traits::create_parser<value_t>::call()[_val=build(_1)];
  }
     rule<Iterator, Value*(), boost::spirit::standard::space_type> additive_expression, multiplicative_expression
       , factor, numeric_to_val, program;

@@ -46,51 +46,32 @@ using namespace boost::spirit::standard;
 
 
 // template function to map  C++ type -> llvm::Type
-template<typename T> static const Type* type(){ return "unkown type!";}// error
-template<> const Type* type<void>()  { return Type::getVoidTy(getGlobalContext());}
-template<> const Type* type<int>()   { return Type::getInt32Ty(getGlobalContext());}
-template<> const Type* type<long>()  { return Type::getInt64Ty(getGlobalContext());}
-template<> const Type* type<float>() { return Type::getFloatTy(getGlobalContext());}
-template<> const Type* type<double>(){ return Type::getDoubleTy(getGlobalContext());}
+template<typename T> static const llvm::Type* type(){ return "unkown type!";}// error
 
-// template structs to map C++ type -> Spirit2 numeric parser
-template<typename T> struct numeric_parser{};
+#define MAP_INT_TYPE(cpp_type_)                                         \
+  template <>                                                           \
+  const llvm::Type* type<cpp_type_>() {                                 \
+    return llvm::Type::getIntNTy(llvm::getGlobalContext()               \
+                                 , sizeof(cpp_type_)*8);                \
+  }
 
-template<>  struct numeric_parser<short>{
-  typedef const short__type type;
-  static type parser;
-};
-numeric_parser<short>::type numeric_parser<short>::parser=short_;
+#define MAP_TYPE(cpp_type_, fn_)                                        \
+  template <>                                                           \
+  const llvm::Type* type<cpp_type_>() {                                 \
+    return llvm::Type::fn_(llvm::getGlobalContext());                   \
+  }
 
-template<> struct   numeric_parser<int>{
-  typedef const int__type type;
-  static type parser;
-};
-numeric_parser<int>::type numeric_parser<int>::parser=int_;
-
-template<>  struct  numeric_parser<long>{
-  typedef const long__type type;
-  static type parser;
-};
-numeric_parser<long>::type numeric_parser<long>::parser=long_;
-
-template<>  struct  numeric_parser<float>{
-  typedef const float__type type;
-  static type parser;
-};
-numeric_parser<float>::type numeric_parser<float>::parser=float_;
-
-template<>  struct  numeric_parser<double>{
-  typedef const double__type type;
-  static type parser;
-};
-
-numeric_parser<double>::type numeric_parser<double>::parser=double_;
-
-template<>  struct  numeric_parser<long double>{
-  typedef const long_double_type type;
-  static type parser;
-};
+MAP_TYPE(void, getVoidTy)
+MAP_INT_TYPE(char)
+MAP_INT_TYPE(short)
+MAP_INT_TYPE(int)
+MAP_INT_TYPE(long)
+MAP_INT_TYPE(long long)
+MAP_TYPE(float, getFloatTy)
+MAP_TYPE(double, getDoubleTy)
+// long double is more tricky
+#undef MAP_INT_TYPE
+#undef MAP_TYPE
 
 
 // now the real deal, at last ! :-)
@@ -191,7 +172,7 @@ struct language_2_grammar : grammar<Iterator, space_type> {
       | id_declared_var [_val=build(_1)]
       | '(' >> additive_expression  [_val=_1] >> ')'
       ;
-    numeric_to_val = numeric_parser<value_t>::parser[_val=build(_1)];
+    numeric_to_val = boost::spirit::traits::create_parser<value_t>::call()[_val=build(_1)];
 
     variable = id_declared_var[_val=build(_1)];
 
