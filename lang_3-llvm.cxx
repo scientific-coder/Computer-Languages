@@ -565,6 +565,13 @@ bool exec_function(llvm::Module& module, std::string const& function_name="main"
   return true;
 }
 
+#ifdef NOFOLDER
+typedef llvm::NoFolder folder_t; 
+#else
+typedef llvm::ConstantFolder folder_t; 
+#endif
+
+typedef llvm::IRBuilder<true, folder_t> builder_t;
 
 int main(int argc, char* argv[]){
   typedef int value_t; // type used in arithmetic computations
@@ -574,7 +581,6 @@ int main(int argc, char* argv[]){
   buffer_t buffer(std::istream_iterator<char>(std::cin), (std::istream_iterator<char>()));
   typedef buffer_t::const_iterator iter_t;
   iter_t iter(buffer.begin()), end(buffer.end());
-  typedef llvm::IRBuilder<true, llvm::NoFolder> builder_t;
   typedef language_3_grammar<value_t, iter_t, builder_t> grammar_t;
   llvm::Module module("lang_3", llvm::getGlobalContext());
   builder_t b(llvm::BasicBlock::Create(llvm::getGlobalContext(), "entry",
@@ -598,19 +604,13 @@ int main(int argc, char* argv[]){
 }
 
 #define INSTANTIATE_IRBUILDER_UNOP(fn_)                                 \
-  template                                                              \
-  Value* llvm::IRBuilder<true, llvm::ConstantFolder                     \
-                         , llvm::IRBuilderDefaultInserter<true>         \
-                         >::fn_(llvm::Value* , llvm::Twine const &)
+  template Value* builder_t::fn_(llvm::Value* , llvm::Twine const &)
 
 INSTANTIATE_IRBUILDER_UNOP(CreateNeg);
 INSTANTIATE_IRBUILDER_UNOP(CreateFNeg);
 
 #define INSTANTIATE_IRBUILDER_BINOP(fn_)                                \
-  template                                                              \
-  Value* llvm::IRBuilder<true, llvm::ConstantFolder                     \
-                         , llvm::IRBuilderDefaultInserter<true>         \
-                         >::fn_(llvm::Value* , Value* , llvm::Twine const &)
+  template Value* builder_t::fn_(llvm::Value* , Value* , llvm::Twine const &)
 
 INSTANTIATE_IRBUILDER_BINOP(CreateOr);
 INSTANTIATE_IRBUILDER_BINOP(CreateAnd);
