@@ -170,11 +170,9 @@ template<typename Derived, typename instr_t> struct interpreter_base {
     prog_loader loader(prog);
     std::for_each(b, e, boost::apply_visitor(loader));}
 
-  void operator()(std::size_t n=1) { 
-    for(std::size_t i(0); i != n; ++i){ 
-      static_cast<Derived&>(*this).process(prog.begin()); 
-      while(!stack.empty()) {stack.pop();}
-    } 
+  void operator()() { 
+    static_cast<Derived&>(*this)(prog.begin()); 
+    while(!stack.empty()) {stack.pop();}
   }
   
   program_type prog;
@@ -193,11 +191,11 @@ template<bool stored_labels, typename instr_t> struct interpreter : interpreter_
   using base_type::a ;
   using base_type::s ;
   using base_type::to_str ;
-
+  using base_type::operator();
   //  using  interpreter_base<interpreter<stored_labels, instr_t>, instr_t >::interpreter_base<interpreter<stored_labels, instr_t>, instr_t >;
   template<typename In> interpreter(In b, In e): base_type(b, e){}
   template<typename In>
-  var_type process(In pc) {
+  var_type operator()(In pc) {
     while(true){
       switch((*(pc++)).get_opcode()){
       case opcode::load_i: {
@@ -258,12 +256,12 @@ template<typename instr_t> struct interpreter<true, instr_t> : interpreter_base<
   using base_type::a ;
   using base_type::s ;
   using base_type::to_str ;
-
+  using base_type::operator();
   //  using  interpreter_base<interpreter<true, instr_t>, instr_t >::interpreter_base<interpreter<true, instr_t>, instr_t >;
   template<typename In> interpreter(In b, In e): base_type(b, e){}
 
   template<typename In>
-  var_type process(In pc) {
+  var_type operator()(In pc) {
     // it is a pity that I cannot have implicit int conversion when specifying the enum size :(
     static void* instr[]={ &&load_i, &&load_d, &&load_o, &&add, &&subtract, &&jump_if_true, &&invalid, &&over};
     //#define DO_NOT_FACTOR
@@ -371,6 +369,8 @@ int main(int argc, char* argv[]){
   }
   listing.emplace_back(opcode::over);
   interpreter<with_stored_labels,  instruction_type> inter(listing.begin(), listing.end());
-  inter(trace ? 1 : 100000);
+  for(std::size_t i(0); i != (trace ? 1 : 10000); ++i)
+    { inter(); } 
+
   return 0;
 }
