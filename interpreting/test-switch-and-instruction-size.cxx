@@ -264,85 +264,61 @@ template<typename instr_t> struct interpreter<true, instr_t> : interpreter_base<
   var_type operator()(In pc) {
     // it is a pity that I cannot have implicit int conversion when specifying the enum size :(
     static void* const instr[]={ &&load_i, &&load_d, &&load_o, &&add, &&subtract, &&jump_if_true, &&invalid, &&over};
-    //#define DO_NOT_FACTOR
+    #define DO_NOT_FACTOR
 #ifdef DO_NOT_FACTOR
-    goto *instr[static_cast<int>((*pc++).get_opcode())];
-  load_i : {
-      stack.push(instruction_type::template read_data<int>(pc));
-      if(trace){std::cerr<<"loading int:"<<boost::get<int>(stack.top())<<std::endl;}
-      goto *instr[static_cast<int>((*pc++).get_opcode())];
-    }
-  load_d : {
-      stack.push(instruction_type::template read_data<double>(pc));
-      if(trace){std::cerr<<"loading double:"<<boost::get<double>(stack.top())<<std::endl;}
-      goto *instr[static_cast<int>((*pc++).get_opcode())];
-    }
-  load_o : {
-      stack.push(instruction_type::template read_data<object_ptr>(pc));
-      if(trace){std::cerr<<"loading object:"<<boost::get<object_ptr>(stack.top())<<std::endl;}
-      goto *instr[static_cast<int>((*pc++).get_opcode())];
-    }
-  add : {
-      var_type& tos1(*(&stack.top()-1));
-      if(trace){ std::cerr<<"adding:\n"<< boost::apply_visitor(to_str, stack.top())<<  boost::apply_visitor(to_str, tos1)<<std::endl;}
-      tos1= boost::apply_visitor(a, tos1, stack.top());
-      stack.pop();
-      if(trace){ std::cerr<<boost::apply_visitor(to_str, stack.top()) << std::endl;}
-      goto *instr[static_cast<int>((*pc++).get_opcode())];
-    }
-  subtract : {
-      var_type& tos1(*(&stack.top()-1));
-      if(trace){ std::cerr<<"subtracting:\n"<< boost::apply_visitor(to_str, stack.top())<< boost::apply_visitor(to_str, tos1)<<std::endl;}
-      tos1=boost::apply_visitor(s, tos1, stack.top());
-      stack.pop();
-      if(trace){ std::cerr<<boost::apply_visitor(to_str, stack.top()) << std::endl;}
-      goto *instr[static_cast<int>((*pc++).get_opcode())];
-    }
-  jump_if_true: {// TODO
-      goto *instr[static_cast<int>((*pc++).get_opcode())];
-    }
-  invalid : std::cerr<<"invalid opcode\n";
-  over:
+
+#define NEXT goto *instr[static_cast<int>((*pc++).get_opcode())]
+#define POP  stack.pop(); NEXT
+
 #else
-    goto next;
+
+#define NEXT goto next
+#define POP  goto with_pop
+
+#endif
+    NEXT;
+#ifndef DO_NOT_FACTOR
   with_pop: stack.pop();
   next: goto *instr[static_cast<int>((*pc++).get_opcode())];
+#endif
+
   load_i : {
       stack.push(instruction_type::template read_data<int>(pc));
       if(trace){std::cerr<<"loading int:"<<boost::get<int>(stack.top())<<std::endl;}
-      goto next;
+      NEXT;
     }
   load_d : {
       stack.push(instruction_type::template read_data<double>(pc));
       if(trace){std::cerr<<"loading double:"<<boost::get<double>(stack.top())<<std::endl;}
-      goto next;
+      NEXT;
     }
   load_o : {
       stack.push(instruction_type::template read_data<object_ptr>(pc));
       if(trace){std::cerr<<"loading object:"<<boost::get<object_ptr>(stack.top())<<std::endl;}
-      goto next;
+      NEXT;
     }
   add : {
       var_type& tos1(*(&stack.top()-1));
       if(trace){ std::cerr<<"adding:\n"<< boost::apply_visitor(to_str, stack.top())<<  boost::apply_visitor(to_str, tos1)<<std::endl;}
       tos1= boost::apply_visitor(a, tos1, stack.top());
       if(trace){ std::cerr<<boost::apply_visitor(to_str, tos1) << std::endl;}
-      goto with_pop;
+      POP;
     }
   subtract : {
       var_type& tos1(*(&stack.top()-1));
       if(trace){ std::cerr<<"subtracting:\n"<< boost::apply_visitor(to_str, stack.top())<< boost::apply_visitor(to_str, tos1)<<std::endl;}
       tos1=boost::apply_visitor(s, tos1, stack.top());
       if(trace){ std::cerr<<boost::apply_visitor(to_str, tos1) << std::endl;}
-      goto with_pop;
+      POP;
     }
   jump_if_true: {// TODO
-      goto next;
+      NEXT;
     }
   invalid : std::cerr<<"invalid opcode\n";
   over:
-#endif
     return stack.top();
+#undef NEXT
+#undef POP
   }
 
 };
@@ -350,7 +326,7 @@ template<typename instr_t> struct interpreter<true, instr_t> : interpreter_base<
 int main(int argc, char* argv[]){
   // faster is large opcodes and _especially_ with stored labels
   constexpr bool compact_opcode= false;
-  constexpr bool with_stored_labels= false; // gcc extension
+  constexpr bool with_stored_labels= true; // gcc extension
 
   typedef instruction<compact_opcode> instruction_type;
   typedef instruction_type::opcode opcode;
