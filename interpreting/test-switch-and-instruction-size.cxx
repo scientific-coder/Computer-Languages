@@ -1,7 +1,7 @@
 #include <iostream>
 #include <sstream>
 #include <vector>
-#include <stack>
+
 #include <algorithm>
 #include <functional>
 #include <boost/variant/variant.hpp>
@@ -168,15 +168,30 @@ template<typename Derived, typename instr_t> struct interpreter_base {
 
   template<typename In> interpreter_base(In b, In e){ 
     prog_loader loader(prog);
-    std::for_each(b, e, boost::apply_visitor(loader));}
-
-  void operator()() { 
-    static_cast<Derived&>(*this)(prog.begin()); 
-    while(!stack.empty()) {stack.pop();}
+    std::for_each(b, e, boost::apply_visitor(loader));
   }
-  
+
+  template<typename...Args>
+  std::vector<var_type> operator()(Args... a) { 
+    std::vector<var_type> vars={a...};// contains args and then results
+    {      // make code to put args on the stack
+
+      program_type prolog;
+      prog_loader loader(prolog);
+      std::for_each(vars.begin(), vars.end(), boost::apply_visitor(loader));
+      vars.clear();
+      prolog.emplace_back(opcode::over);
+      // exec prolog
+      static_cast<Derived & >(*this).exec(prolog.begin());
+     }
+  // jump to interpreter
+    static_cast<Derived&>(*this).exec(prog.begin()); 
+    stack.swap(vars); // clears sack and get results at the same time
+    return vars;
+  }
+
   program_type prog;
-  std::stack<var_type> stack;
+  std::vector<var_type> stack;
   adder a;
   subtracter s;
   to_string to_str;
@@ -195,38 +210,38 @@ template<bool stored_labels, typename instr_t> struct interpreter : interpreter_
   //  using  interpreter_base<interpreter<stored_labels, instr_t>, instr_t >::interpreter_base<interpreter<stored_labels, instr_t>, instr_t >;
   template<typename In> interpreter(In b, In e): base_type(b, e){}
   template<typename In>
-  var_type operator()(In pc) {
+  var_type exec(In pc) {
     while(true){
       switch((*(pc++)).get_opcode()){
       case opcode::load_i: {
-        stack.push(instruction_type::template read_data<int>(pc));
-        if(trace){std::cerr<<"loading int:"<<boost::get<int>(stack.top())<<std::endl;}
+        stack.push_back(instruction_type::template read_data<int>(pc));
+        if(trace){std::cerr<<"loading int:"<<boost::get<int>(stack.back())<<std::endl;}
         break;
       }
       case opcode::load_d: {
-        stack.push(instruction_type::template read_data<double>(pc));
-        if(trace){std::cerr<<"loading double:"<<boost::get<double>(stack.top())<<std::endl;}
+        stack.push_back(instruction_type::template read_data<double>(pc));
+        if(trace){std::cerr<<"loading double:"<<boost::get<double>(stack.back())<<std::endl;}
         break;
       }
       case opcode::load_o: {
-        stack.push(instruction_type::template read_data<object_ptr>(pc));
-        if(trace){std::cerr<<"loading: object"<<boost::get<object_ptr>(stack.top())<<std::endl;}
+        stack.push_back(instruction_type::template read_data<object_ptr>(pc));
+        if(trace){std::cerr<<"loading: object"<<boost::get<object_ptr>(stack.back())<<std::endl;}
         break;
       }
       case opcode::add: {
-        var_type& tos1(*(&stack.top()-1));
-        if(trace){ std::cerr<<"adding:\n"<< boost::apply_visitor(to_str, stack.top())<<  boost::apply_visitor(to_str, tos1)<<std::endl;}
-        tos1= boost::apply_visitor(a, tos1, stack.top());
-        stack.pop();
-        if(trace){ std::cerr<<boost::apply_visitor(to_str, stack.top()) << std::endl;}
+        var_type& tos1(*(&stack.back()-1));
+        if(trace){ std::cerr<<"adding:\n"<< boost::apply_visitor(to_str, stack.back())<<  boost::apply_visitor(to_str, tos1)<<std::endl;}
+        tos1= boost::apply_visitor(a, tos1, stack.back());
+        stack.pop_back();
+        if(trace){ std::cerr<<boost::apply_visitor(to_str, stack.back()) << std::endl;}
         break;
       }
       case opcode::subtract: {
-        var_type& tos1(*(&stack.top()-1));
-        if(trace){ std::cerr<<"subtracting:\n"<< boost::apply_visitor(to_str, stack.top())<< boost::apply_visitor(to_str, tos1)<<std::endl;}
-        tos1=boost::apply_visitor(s, tos1, stack.top());
-        stack.pop();
-        boost::apply_visitor(to_str, stack.top());
+        var_type& tos1(*(&stack.back()-1));
+        if(trace){ std::cerr<<"subtracting:\n"<< boost::apply_visitor(to_str, stack.back())<< boost::apply_visitor(to_str, tos1)<<std::endl;}
+        tos1=boost::apply_visitor(s, tos1, stack.back());
+        stack.pop_back();
+        boost::apply_visitor(to_str, stack.back());
         break;
       }
       case opcode::jump_if_true: {
@@ -243,7 +258,7 @@ template<bool stored_labels, typename instr_t> struct interpreter : interpreter_
       if(trace){ std::cerr<<"stack.size()="<<stack.size()<<std::endl; }
     }
   over:
-    return stack.top();
+    return stack.back();
   }
 };
 
@@ -261,14 +276,14 @@ template<typename instr_t> struct interpreter<true, instr_t> : interpreter_base<
   template<typename In> interpreter(In b, In e): base_type(b, e){}
 
   template<typename In>
-  var_type operator()(In pc) {
+  var_type exec(In pc) {
     // it is a pity that I cannot have implicit int conversion when specifying the enum size :(
     static void* const instr[]={ &&load_i, &&load_d, &&load_o, &&add, &&subtract, &&jump_if_true, &&invalid, &&over};
-    #define DO_NOT_FACTOR
+    //    #define DO_NOT_FACTOR
 #ifdef DO_NOT_FACTOR
 
 #define NEXT goto *instr[static_cast<int>((*pc++).get_opcode())]
-#define POP  stack.pop(); NEXT
+#define POP  stack.pop_back(); NEXT
 
 #else
 
@@ -278,36 +293,36 @@ template<typename instr_t> struct interpreter<true, instr_t> : interpreter_base<
 #endif
     NEXT;
 #ifndef DO_NOT_FACTOR
-  with_pop: stack.pop();
+  with_pop: stack.pop_back();
   next: goto *instr[static_cast<int>((*pc++).get_opcode())];
 #endif
 
   load_i : {
-      stack.push(instruction_type::template read_data<int>(pc));
-      if(trace){std::cerr<<"loading int:"<<boost::get<int>(stack.top())<<std::endl;}
+      stack.push_back(instruction_type::template read_data<int>(pc));
+      if(trace){std::cerr<<"loading int:"<<boost::get<int>(stack.back())<<std::endl;}
       NEXT;
     }
   load_d : {
-      stack.push(instruction_type::template read_data<double>(pc));
-      if(trace){std::cerr<<"loading double:"<<boost::get<double>(stack.top())<<std::endl;}
+      stack.push_back(instruction_type::template read_data<double>(pc));
+      if(trace){std::cerr<<"loading double:"<<boost::get<double>(stack.back())<<std::endl;}
       NEXT;
     }
   load_o : {
-      stack.push(instruction_type::template read_data<object_ptr>(pc));
-      if(trace){std::cerr<<"loading object:"<<boost::get<object_ptr>(stack.top())<<std::endl;}
+      stack.push_back(instruction_type::template read_data<object_ptr>(pc));
+      if(trace){std::cerr<<"loading object:"<<boost::get<object_ptr>(stack.back())<<std::endl;}
       NEXT;
     }
   add : {
-      var_type& tos1(*(&stack.top()-1));
-      if(trace){ std::cerr<<"adding:\n"<< boost::apply_visitor(to_str, stack.top())<<  boost::apply_visitor(to_str, tos1)<<std::endl;}
-      tos1= boost::apply_visitor(a, tos1, stack.top());
+      var_type& tos1(*(&stack.back()-1));
+      if(trace){ std::cerr<<"adding:\n"<< boost::apply_visitor(to_str, stack.back())<<  boost::apply_visitor(to_str, tos1)<<std::endl;}
+      tos1= boost::apply_visitor(a, tos1, stack.back());
       if(trace){ std::cerr<<boost::apply_visitor(to_str, tos1) << std::endl;}
       POP;
     }
   subtract : {
-      var_type& tos1(*(&stack.top()-1));
-      if(trace){ std::cerr<<"subtracting:\n"<< boost::apply_visitor(to_str, stack.top())<< boost::apply_visitor(to_str, tos1)<<std::endl;}
-      tos1=boost::apply_visitor(s, tos1, stack.top());
+      var_type& tos1(*(&stack.back()-1));
+      if(trace){ std::cerr<<"subtracting:\n"<< boost::apply_visitor(to_str, stack.back())<< boost::apply_visitor(to_str, tos1)<<std::endl;}
+      tos1=boost::apply_visitor(s, tos1, stack.back());
       if(trace){ std::cerr<<boost::apply_visitor(to_str, tos1) << std::endl;}
       POP;
     }
@@ -316,7 +331,7 @@ template<typename instr_t> struct interpreter<true, instr_t> : interpreter_base<
     }
   invalid : std::cerr<<"invalid opcode\n";
   over:
-    return stack.top();
+    return stack.back();
 #undef NEXT
 #undef POP
   }
@@ -346,7 +361,7 @@ int main(int argc, char* argv[]){
   listing.emplace_back(opcode::over);
   interpreter<with_stored_labels,  instruction_type> inter(listing.begin(), listing.end());
   for(std::size_t i(0); i != (trace ? 1 : 10000); ++i)
-    { inter(); } 
+    { inter(8888, -789, .75); } 
 
   return 0;
 }
