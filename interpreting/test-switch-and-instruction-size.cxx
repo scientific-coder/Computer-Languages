@@ -263,7 +263,7 @@ template<typename instr_t> struct interpreter<true, instr_t> : interpreter_base<
   template<typename In>
   var_type operator()(In pc) {
     // it is a pity that I cannot have implicit int conversion when specifying the enum size :(
-    static void* instr[]={ &&load_i, &&load_d, &&load_o, &&add, &&subtract, &&jump_if_true, &&invalid, &&over};
+    static void* const instr[]={ &&load_i, &&load_d, &&load_o, &&add, &&subtract, &&jump_if_true, &&invalid, &&over};
     //#define DO_NOT_FACTOR
 #ifdef DO_NOT_FACTOR
     goto *instr[static_cast<int>((*pc++).get_opcode())];
