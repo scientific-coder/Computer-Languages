@@ -331,13 +331,13 @@ int main(int argc, char* argv[]){
   typedef instruction<compact_opcode> instruction_type;
   typedef instruction_type::opcode opcode;
   std::cout<<"instruction size:"<<sizeof(instruction_type)<<" opcode_size:"<<sizeof(opcode)<<std::endl;
-  std::vector<boost::variant< opcode, double, object*> > listing;
+  std::vector<boost::variant< opcode, double, int, object*> > listing;
   listing.emplace_back(555.666);
   for( std::size_t i(0); i != (trace ? 1 : 100); ++i) {
     listing.emplace_back(123.456);
     listing.emplace_back(128.256);
     listing.emplace_back(new object());
-    listing.emplace_back(-1.);
+    listing.emplace_back(-1);
     listing.emplace_back(opcode::add);
     listing.emplace_back(opcode::subtract);
     listing.emplace_back(opcode::add);
