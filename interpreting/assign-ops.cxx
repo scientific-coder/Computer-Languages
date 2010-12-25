@@ -43,6 +43,8 @@ add labels to listing, and jump to labels
 
 constexpr bool  trace {false}; // I don't want to pollute each and every class & function with a bool template arg
 
+constexpr bool test_assign_ops{true};
+
 struct object;
 
 //typedef std::shared_ptr<object> object_ptr; // TODO
@@ -88,20 +90,22 @@ struct object {
  */
 template<typename T1, typename T2> 
 struct with_assign_op 
-  : boost::mpl::and_< boost::mpl::not_<boost::mpl::or_< boost::is_same<T1, object_ptr>
-                                                        , boost::is_same<T2, object_ptr> > >
-                      ,boost::is_same<T1, typename arithmetic_promotion<T1, T2>::type > > { };
+  : boost::mpl::and_< boost::mpl::bool_<test_assign_ops>
+                      ,boost::mpl::and_< boost::mpl::not_<boost::mpl::or_< boost::is_same<T1, object_ptr>
+                                                                           , boost::is_same<T2, object_ptr> > >
+                                         ,boost::is_same<T1, typename arithmetic_promotion<T1, T2>::type > > > { };
 
 template<typename Stack>
 struct adder : boost::static_visitor<> {
   adder(Stack &s) : stack(s){}
 
   template<typename T1, typename T2> 
-  typename boost::disable_if<with_assign_op<T1, T2>, void>::type operator()(T1 a1, T2 a2)  { a1+= a2; }
+  typename boost::enable_if<with_assign_op<T1, T2>, void>::type operator()(T1& a1, T2 a2) { if(trace) { std::cerr<<"using compound assign op\n"; } a1+= a2; }
 
   template<typename T1, typename T2> 
-  typename boost::disable_if<boost::mpl::not_<with_assign_op<T1, T2> >, void>::type operator()(T1 a1, T2 a2)  { 
+  typename boost::disable_if<with_assign_op<T1, T2> , void>::type operator()(T1 a1, T2 a2)  { 
     typedef typename arithmetic_promotion<T1, T2>::type result_type;
+    if(trace) { std::cerr<<"NOT using compound assign op\n"; }
     stack[stack.size()-2]= var_type(static_cast<result_type>(a1) + static_cast<result_type>(a2));
   }
 
@@ -118,11 +122,12 @@ struct subtracter :boost::static_visitor<void> {
   subtracter(Stack& s):stack(s){}
 
   template<typename T1, typename T2> 
-  typename boost::disable_if<with_assign_op<T1, T2>, void>::type operator()(T1 a1, T2 a2)  { a1-= a2; }
+  typename boost::enable_if<with_assign_op<T1, T2>, void>::type operator()(T1& a1, T2 a2) { if(trace) { std::cerr<<"using compound assign op\n"; } a1-= a2; }
 
   template<typename T1, typename T2> 
-  typename boost::disable_if<boost::mpl::not_<with_assign_op<T1, T2> >, void>::type operator()(T1 a1, T2 a2)  { 
+  typename boost::disable_if<with_assign_op<T1, T2> , void>::type operator()(T1 a1, T2 a2)  { 
     typedef typename arithmetic_promotion<T1, T2>::type result_type;
+    if(trace) { std::cerr<<"NOT using compound assign op\n"; }
     stack[stack.size()-2]= var_type(static_cast<result_type>(a1) - static_cast<result_type>(a2));
   }
 
@@ -393,11 +398,12 @@ int main(int argc, char* argv[]){
   std::cout<<"instruction size:"<<sizeof(instruction_type)<<" opcode_size:"<<sizeof(opcode)<<std::endl;
   std::vector<boost::variant< opcode, double, int, object*> > listing;
   listing.emplace_back(555.666); // load instructions are implied in the listing : no load_op_X
-  for( std::size_t i(0); i != (trace ? 1 : 100); ++i) {
+  for( std::size_t i(0); i != (trace ? 1 : 1000); ++i) {
     listing.emplace_back(123.456);
         listing.emplace_back(128.256);
         listing.emplace_back(128.256);
-        listing.emplace_back(new object());
+        //        listing.emplace_back(new object());
+        listing.emplace_back(2.5);
     listing.emplace_back(-1.);
     listing.emplace_back(opcode::add);
     listing.emplace_back(opcode::subtract);
@@ -407,7 +413,7 @@ int main(int argc, char* argv[]){
   listing.emplace_back(opcode::over);
   interpreter<with_stored_labels,  instruction_type> inter(listing.begin(), listing.end());
   for(std::size_t i(0); i != (trace ? 1 : 10000); ++i)
-    { inter(8888, -789, .75); } 
+    { inter(8888., -789., .75); } 
 
   return 0;
 }
