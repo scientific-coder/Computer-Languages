@@ -2,7 +2,7 @@
 double f(double a, double b, double c){
   volatile double d=555.666;
   volatile double k;
-    for( std::size_t i(0); i != 1000; ++i) {
+    for( std::size_t i(1000); i != 0; --i) {
       volatile double e=123.456;
       volatile double f=128.256;
       volatile double g=128.256;
