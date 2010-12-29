@@ -328,7 +328,6 @@ struct interpreter : interpreter_base<interpreter<stored_labels, instr_t>, instr
         break;
       }
       case opcode::jump_if_true: {
-        In saved_pc(pc);
         int delta(instruction_type::template read_data<int>(pc));
         if(boost::apply_visitor(to_b, stack.back())) { 
           if(trace) {
