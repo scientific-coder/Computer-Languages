@@ -1,9 +1,10 @@
 #include <iostream>
 #include <sstream>
 #include <vector>
-
+#include <string>
 #include <algorithm>
 #include <functional>
+#include <unordered_map>
 #include <boost/variant/variant.hpp>
 #include <boost/variant/apply_visitor.hpp>
 #include <boost/variant/get.hpp>
@@ -17,6 +18,7 @@
 #include <boost/mpl/plus.hpp>
 #include <boost/mpl/size_t.hpp>
 #include <boost/mpl/not.hpp>
+//#include <boost/flyweight.hpp>
 
 
 #include "generic_union.hxx"
@@ -212,24 +214,29 @@ template<typename First, typename...Rest> struct total_sizeof<First, Rest...> : 
 template<typename Derived, typename instr_t> struct interpreter_base {
   typedef instr_t instruction_type;
   typedef typename instruction_type::opcode opcode;
+  typedef std::string label_type;
   typedef std::vector<instruction_type> program_type;
 
   struct prog_loader : boost::static_visitor<> {
-    prog_loader(program_type& prog):prog(prog), no_load(false){}
-    void operator()(opcode op){ prog.emplace_back(op); 
-      if(op == opcode::jump_if_true){ no_load = true; } // next int value in listing won't trigger a load instruction insertion
+    prog_loader(program_type& prog):prog(prog), in_jump(false){}
+    void operator()(label_type const& l){ 
+      if(!in_jump){ labels[l]= prog.size();}
+      else {
+        std::size_t const offset_start(prog.size());
+        instruction_type::to_opcodes(0, std::back_inserter(prog));
+        instruction_type::to_opcodes(static_cast<int>(labels[l]-prog.size()), prog.begin()+offset_start);
+      }
+    }
+    void operator()(opcode op){ 
+      prog.emplace_back(op); 
+      if(op == opcode::jump_if_true){ in_jump = true; } // next label will be a jump target
     }
     void operator()(double d){ prog.emplace_back(opcode::load_d); instruction_type::to_opcodes(d, std::back_inserter(prog)); }
-    void operator()(int i){
-      if(!no_load) {
-        prog.emplace_back(opcode::load_i);
-        no_load= false;
-      }
-      instruction_type::to_opcodes(i, std::back_inserter(prog)); 
-    }
+    void operator()(int i){ prog.emplace_back(opcode::load_i); instruction_type::to_opcodes(i, std::back_inserter(prog)); }
     void operator()(object* o){ prog.emplace_back(opcode::load_o); instruction_type::to_opcodes(o, std::back_inserter(prog)); }
     program_type& prog;
-    bool no_load;
+    bool in_jump;
+    std::unordered_map<label_type, std::size_t> labels;
   };
 
   template<typename In> interpreter_base(In b, In e):a(stack), s(stack) {
@@ -321,6 +328,7 @@ struct interpreter : interpreter_base<interpreter<stored_labels, instr_t>, instr
         break;
       }
       case opcode::jump_if_true: {
+        In saved_pc(pc);
         int delta(instruction_type::template read_data<int>(pc));
         if(boost::apply_visitor(to_b, stack.back())) { 
           if(trace) {
@@ -444,9 +452,12 @@ int main(int argc, char* argv[]){
   typedef instruction<compact_opcode> instruction_type;
   typedef instruction_type::opcode opcode;
   std::cout<<"instruction size:"<<sizeof(instruction_type)<<" opcode_size:"<<sizeof(opcode)<<std::endl;
-  std::vector<boost::variant< opcode, double, int, object*> > listing;
+  //  typedef boost::flyweight::flyweight<std::string> label_type;
+  typedef std::string label_type;
+  std::vector<boost::variant< opcode, label_type, double, int, object*> > listing;
   // instructions are implied in the listing : no load_op_X
   listing.emplace_back((trace ? 2 : 1000));//@0
+  listing.emplace_back(label_type(std::string("start:")));
   listing.emplace_back(123.456);//@2
   listing.emplace_back(128.256);//@4
   //listing.emplace_back(128.256);
@@ -461,7 +472,7 @@ int main(int argc, char* argv[]){
   listing.emplace_back(1);//@17
   listing.emplace_back(opcode::subtract);//@19 index -1
   listing.emplace_back(opcode::jump_if_true);//@20
-  listing.emplace_back(compact_opcode ? -57: -20);//@21 2-23 goto 2
+  listing.emplace_back(label_type(std::string("start:")));//@21 2-23 goto 2
   listing.emplace_back(opcode::over);//@23
   interpreter<with_stored_labels,  instruction_type> inter(listing.begin(), listing.end());
   for(std::size_t i(0); i != (trace ? 1 : 10000); ++i)
